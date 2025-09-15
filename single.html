@@ -1,0 +1,303 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>BOB Banking App (Singleton BankServer)</title>
+  <style>
+    :root{ --bg:#0f1724; --card:#0b1220; --accent:#06b6d4; --muted:#9aa9b2; --glass: rgba(255,255,255,0.04)}
+    *{box-sizing:border-box}
+    body{font-family:Inter,system-ui,Segoe UI,Roboto,'Helvetica Neue',Arial; margin:0; min-height:100vh; background:linear-gradient(180deg,#071025 0%, #072033 60%); color:#e6f0f2; display:flex; align-items:center; justify-content:center; padding:32px}
+    .app{width:960px; max-width:100%; display:grid; grid-template-columns:360px 1fr; gap:20px}
+    .panel{background:linear-gradient(180deg,var(--card), rgba(11,18,32,0.8)); padding:18px; border-radius:12px; box-shadow: 0 6px 18px rgba(2,6,23,0.6);}
+    h1{font-size:20px;margin:0 0 12px}
+    label{display:block;font-size:13px;color:var(--muted); margin-bottom:6px}
+    input, select{width:100%; padding:10px;border-radius:8px;border:1px solid rgba(255,255,255,0.04); background:transparent;color:inherit}
+    button{padding:10px 14px;border-radius:10px;border:none;background:var(--accent); color:#042027;font-weight:600;cursor:pointer}
+    .small{font-size:13px;color:var(--muted)}
+    .accounts{display:flex;flex-direction:column;gap:10px}
+    .account{background:var(--glass); padding:10px;border-radius:10px; display:flex;justify-content:space-between;align-items:center}
+    .transactions{overflow:auto; max-height:420px}
+    .tx{padding:10px;border-radius:8px;margin-bottom:8px;background:rgba(255,255,255,0.02)}
+    .row{display:flex;gap:8px}
+    .muted{color:var(--muted)}
+    .flex-between{display:flex;justify-content:space-between;align-items:center}
+    footer{margin-top:12px;color:var(--muted);font-size:12px}
+    .danger{background:#ffb3b3;color:#6b0000}
+  </style>
+</head>
+<body>
+  <div class="app">
+    <!-- Left panel: account creation and actions -->
+    <div class="panel">
+      <h1>BOB Banking — Client</h1>
+      <p class="small">This demo uses a singleton <strong>BankServer</strong> (single instance) to manage accounts & transactions in-memory.</p>
+
+      <hr/>
+      <h3>Create Account</h3>
+      <label for="owner">Owner name</label>
+      <input id="owner" placeholder="e.g. Asha Rao" />
+      <label for="initBal">Initial balance</label>
+      <input id="initBal" type="number" placeholder="1000" />
+      <div style="margin-top:8px;display:flex;gap:8px">
+        <button id="createBtn">Create Account</button>
+        <button id="seedBtn" class="small">Seed Demo Data</button>
+      </div>
+
+      <hr/>
+      <h3>Actions</h3>
+      <label>From Account</label>
+      <select id="fromAccount"></select>
+      <label>To Account (for transfer)</label>
+      <select id="toAccount"></select>
+      <label>Amount</label>
+      <input id="amount" type="number" placeholder="500" />
+
+      <div style="display:flex;gap:8px;margin-top:8px">
+        <button id="depositBtn">Deposit</button>
+        <button id="withdrawBtn">Withdraw</button>
+        <button id="transferBtn">Transfer</button>
+      </div>
+
+      <div style="margin-top:12px" class="flex-between">
+        <div class="small">Server instance id: <span id="instanceId" class="muted"></span></div>
+        <button id="resetBtn" class="danger small">Reset Server</button>
+      </div>
+
+      <footer>Note: This is a front-end-only demo. No backend persistence.</footer>
+    </div>
+
+    <!-- Right panel: accounts & transactions -->
+    <div class="panel">
+      <div class="flex-between"><h1>Accounts & Transactions</h1><div class="small">BOB Bank — demo</div></div>
+
+      <h3>Accounts</h3>
+      <div id="accountsList" class="accounts"></div>
+
+      <h3 style="margin-top:12px">Transactions</h3>
+      <div id="transactions" class="transactions"></div>
+    </div>
+  </div>
+
+  <script>
+    // -------------------
+    // Singleton BankServer
+    // -------------------
+    class BankServer {
+      constructor() {
+        // Enforce singleton: if instance already exists, return it.
+        if (BankServer._instance) {
+          return BankServer._instance;
+        }
+
+        // Internal data stores
+        this._accounts = new Map(); // accountId -> {id, owner, balance}
+        this._transactions = []; // chronological list of transactions
+        this._nextId = 1;
+
+        // A visible instance id (for demo) to show that clients get same instance
+        this._instanceId = Math.random().toString(36).slice(2, 9);
+
+        // Freeze the instance reference
+        BankServer._instance = this;
+      }
+
+      // Factory accessor — preferred way to obtain the singleton
+      static getInstance() {
+        if (!BankServer._instance) new BankServer();
+        return BankServer._instance;
+      }
+
+      // Create an account and return its id
+      createAccount(owner, initialBalance = 0) {
+        const id = String(this._nextId++);
+        const acct = { id, owner: String(owner || 'Unnamed'), balance: Number(initialBalance) };
+        this._accounts.set(id, acct);
+        this._log('create', { accountId: id, owner: acct.owner, amount: acct.balance });
+        return acct;
+      }
+
+      getAccounts() {
+        return Array.from(this._accounts.values());
+      }
+
+      getAccount(id) {
+        return this._accounts.get(String(id)) || null;
+      }
+
+      deposit(accountId, amount) {
+        amount = Number(amount);
+        if (amount <= 0) throw new Error('Deposit amount must be positive');
+        const acct = this.getAccount(accountId);
+        if (!acct) throw new Error('Account not found');
+        acct.balance += amount;
+        this._log('deposit', { accountId, amount, balance: acct.balance });
+        return acct;
+      }
+
+      withdraw(accountId, amount) {
+        amount = Number(amount);
+        if (amount <= 0) throw new Error('Withdraw amount must be positive');
+        const acct = this.getAccount(accountId);
+        if (!acct) throw new Error('Account not found');
+        if (acct.balance < amount) throw new Error('Insufficient funds');
+        acct.balance -= amount;
+        this._log('withdraw', { accountId, amount, balance: acct.balance });
+        return acct;
+      }
+
+      transfer(fromId, toId, amount) {
+        amount = Number(amount);
+        if (fromId === toId) throw new Error('Cannot transfer to the same account');
+        // perform atomically in this single-threaded demo
+        this.withdraw(fromId, amount);
+        this.deposit(toId, amount);
+        this._log('transfer', { fromId, toId, amount });
+        return true;
+      }
+
+      getTransactions(limit = 200) {
+        return this._transactions.slice(-limit).reverse();
+      }
+
+      _log(type, payload) {
+        this._transactions.push({ id: this._transactions.length + 1, ts: new Date().toISOString(), type, payload });
+      }
+
+      reset() {
+        this._accounts.clear();
+        this._transactions = [];
+        this._nextId = 1;
+        this._log('reset', { message: 'server reset' });
+      }
+
+      instanceId() { return this._instanceId }
+    }
+
+    // Expose the singleton globally for demo & testing
+    window.BankServer = BankServer;
+
+    // ---------------
+    // UI glue code
+    // ---------------
+    const server = BankServer.getInstance();
+
+    const ownerInput = document.getElementById('owner');
+    const initBalInput = document.getElementById('initBal');
+    const createBtn = document.getElementById('createBtn');
+    const seedBtn = document.getElementById('seedBtn');
+    const accountsList = document.getElementById('accountsList');
+    const fromAccount = document.getElementById('fromAccount');
+    const toAccount = document.getElementById('toAccount');
+    const amountInput = document.getElementById('amount');
+    const depositBtn = document.getElementById('depositBtn');
+    const withdrawBtn = document.getElementById('withdrawBtn');
+    const transferBtn = document.getElementById('transferBtn');
+    const instanceIdEl = document.getElementById('instanceId');
+    const transactionsEl = document.getElementById('transactions');
+    const resetBtn = document.getElementById('resetBtn');
+
+    function renderAccounts(){
+      const accts = server.getAccounts();
+      accountsList.innerHTML = '';
+      fromAccount.innerHTML = '<option value="">--select--</option>';
+      toAccount.innerHTML = '<option value="">--select--</option>';
+      accts.forEach(a => {
+        const div = document.createElement('div');
+        div.className = 'account';
+        div.innerHTML = `<div><strong>${a.owner}</strong><div class="small muted">ID: ${a.id}</div></div><div><strong>₹ ${a.balance.toFixed(2)}</strong></div>`;
+        accountsList.appendChild(div);
+
+        const opt = document.createElement('option'); opt.value = a.id; opt.textContent = `${a.owner} (ID ${a.id})`;
+        const opt2 = opt.cloneNode(true);
+        fromAccount.appendChild(opt);
+        toAccount.appendChild(opt2);
+      })
+    }
+
+    function renderTransactions(){
+      const txs = server.getTransactions(500);
+      transactionsEl.innerHTML = '';
+      if (!txs.length) transactionsEl.innerHTML = '<div class="small muted">No transactions yet</div>';
+      txs.forEach(t => {
+        const d = document.createElement('div'); d.className = 'tx';
+        d.innerHTML = `<div class="row"><div><strong>${t.type.toUpperCase()}</strong> <span class="muted">#${t.id}</span></div><div class="small muted">${new Date(t.ts).toLocaleString()}</div></div>
+          <div class="small">${JSON.stringify(t.payload)}</div>`;
+        transactionsEl.appendChild(d);
+      })
+    }
+
+    function refreshUI(){
+      instanceIdEl.textContent = server.instanceId();
+      renderAccounts();
+      renderTransactions();
+    }
+
+    createBtn.addEventListener('click', ()=>{
+      try{
+        const owner = ownerInput.value || 'Unnamed';
+        const bal = Number(initBalInput.value) || 0;
+        server.createAccount(owner, bal);
+        ownerInput.value = '';
+        initBalInput.value = '';
+        refreshUI();
+      } catch(e){ alert(e.message) }
+    })
+
+    seedBtn.addEventListener('click', ()=>{
+      // create some demo accounts
+      server.createAccount('Asha Rao', 1500);
+      server.createAccount('Ravi Kumar', 2200);
+      server.createAccount('Sita Devi', 900);
+      refreshUI();
+    })
+
+    depositBtn.addEventListener('click', ()=>{
+      try{
+        const id = fromAccount.value;
+        const amt = Number(amountInput.value);
+        if (!id) throw new Error('Select from account');
+        server.deposit(id, amt);
+        amountInput.value = '';
+        refreshUI();
+      } catch(e){ alert(e.message) }
+    })
+
+    withdrawBtn.addEventListener('click', ()=>{
+      try{
+        const id = fromAccount.value;
+        const amt = Number(amountInput.value);
+        if (!id) throw new Error('Select from account');
+        server.withdraw(id, amt);
+        amountInput.value = '';
+        refreshUI();
+      } catch(e){ alert(e.message) }
+    })
+
+    transferBtn.addEventListener('click', ()=>{
+      try{
+        const from = fromAccount.value;
+        const to = toAccount.value;
+        const amt = Number(amountInput.value);
+        if (!from || !to) throw new Error('Select both accounts');
+        server.transfer(from, to, amt);
+        amountInput.value = '';
+        refreshUI();
+      } catch(e){ alert(e.message) }
+    })
+
+    resetBtn.addEventListener('click', ()=>{
+      if (!confirm('Reset server data? This will delete accounts & transactions.')) return;
+      server.reset();
+      refreshUI();
+    })
+
+    // initial UI
+    refreshUI();
+
+    // Demonstration: showing that multiple references return same instance
+    // (open console and run: new BankServer(), BankServer.getInstance())
+    console.log('BankServer singleton instance id:', server.instanceId());
+  </script>
+</body>
+</html>
